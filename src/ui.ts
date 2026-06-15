@@ -9,15 +9,30 @@ import {
   passivePerSecond,
 } from "./systems/economy";
 import { formatCompact, formatNumber, NOTATION_LABELS, type NotationMode } from "./systems/notation";
+import {
+  ASCENSION_PRESTIGE_THRESHOLD,
+  canAscend,
+  canPrestige,
+  canTranscend,
+  PRESTIGE_RUN_EARNED_THRESHOLD,
+  prestigeUnlocked,
+  ascensionUnlocked,
+  transcendenceUnlocked,
+  TRANSCENDENCE_ASCENSION_THRESHOLD,
+  transcendenceHueDegrees,
+} from "./systems/prestige";
 import { ownedCount, type GameState } from "./state";
 
-type TabId = "upgrades" | "stats" | "settings";
+type TabId = "upgrades" | "prestige" | "stats" | "settings";
 
 export interface UiCallbacks {
   onClickNumber: (clientX: number, clientY: number) => void;
   onBuyUpgrade: (upgradeId: string) => void;
   onChangeNotation: (mode: NotationMode) => void;
   onResetSave: () => void;
+  onPrestige: () => void;
+  onAscend: () => void;
+  onTranscend: () => void;
 }
 
 // Screen-shake thresholds keyed off click power (§4.1).
@@ -36,6 +51,8 @@ export class GameUi {
   private tabButtons!: Record<TabId, HTMLButtonElement>;
   private statValues!: Record<string, HTMLElement>;
   private notationSelect!: HTMLSelectElement;
+  private prestigeLayerRows!: Record<PrestigeLayerId, PrestigeLayerRow>;
+  private overlayLayer!: HTMLElement;
 
   /** Per-upgrade row element refs, built lazily as upgrades unlock. */
   private upgradeRows = new Map<string, UpgradeRow>();
@@ -73,6 +90,7 @@ export class GameUi {
 
     const tabDefs: Array<{ id: TabId; label: string }> = [
       { id: "upgrades", label: "Upgrades" },
+      { id: "prestige", label: "Prestige" },
       { id: "stats", label: "Stats" },
       { id: "settings", label: "Settings" },
     ];
@@ -85,13 +103,22 @@ export class GameUi {
     }
 
     this.tabPanels.upgrades = this.buildUpgradesPanel();
+    this.tabPanels.prestige = this.buildPrestigePanel();
     this.tabPanels.stats = this.buildStatsPanel();
     this.tabPanels.settings = this.buildSettingsPanel();
 
     const panelHost = el("div", "panel-host");
-    panelHost.append(this.tabPanels.upgrades, this.tabPanels.stats, this.tabPanels.settings);
+    panelHost.append(
+      this.tabPanels.upgrades,
+      this.tabPanels.prestige,
+      this.tabPanels.stats,
+      this.tabPanels.settings,
+    );
 
-    this.root.append(stage, this.particleLayer, tabBar, panelHost, this.toastLayer);
+    this.overlayLayer = el("div", "overlay-layer");
+    this.overlayLayer.style.display = "none";
+
+    this.root.append(stage, this.particleLayer, tabBar, panelHost, this.toastLayer, this.overlayLayer);
     this.setActiveTab(this.activeTab);
   }
 
@@ -99,6 +126,53 @@ export class GameUi {
     const panel = el("section", "panel");
     this.upgradeListEl = el("div", "upgrade-list");
     panel.append(this.upgradeListEl);
+    return panel;
+  }
+
+  private buildPrestigePanel(): HTMLElement {
+    const panel = el("section", "panel");
+    this.prestigeLayerRows = {} as Record<PrestigeLayerId, PrestigeLayerRow>;
+
+    const layers: Array<{ id: PrestigeLayerId; title: string; reward: string; onAct: () => void }> = [
+      {
+        id: "prestige",
+        title: "Prestige",
+        reward: "+2% all production per level. Resets the number and upgrades. The slow penalty stays.",
+        onAct: () => this.callbacks.onPrestige(),
+      },
+      {
+        id: "ascension",
+        title: "Ascension",
+        reward: "×1.1 all production per level. Resets prestige and the slow penalty too.",
+        onAct: () => this.callbacks.onAscend(),
+      },
+      {
+        id: "transcendence",
+        title: "Transcendence",
+        reward: "+5% all production per level. The number's hue shifts 30°. Resets everything.",
+        onAct: () => this.callbacks.onTranscend(),
+      },
+    ];
+
+    for (const layer of layers) {
+      const card = el("div", "prestige-card");
+      const title = el("div", "prestige-title");
+      const levelEl = el("span", "prestige-level");
+      title.append(document.createTextNode(layer.title), levelEl);
+
+      const reward = el("div", "prestige-reward");
+      reward.textContent = layer.reward;
+
+      const requirement = el("div", "prestige-requirement");
+
+      const actButton = el("button", "prestige-button") as HTMLButtonElement;
+      actButton.textContent = layer.title;
+      actButton.addEventListener("click", layer.onAct);
+
+      card.append(title, reward, requirement, actButton);
+      panel.append(card);
+      this.prestigeLayerRows[layer.id] = { card, levelEl, requirement, actButton };
+    }
     return panel;
   }
 
@@ -175,11 +249,56 @@ export class GameUi {
     this.rateDisplay.textContent = `${formatCompact(perSecond)} / s`;
 
     this.syncUpgradeRows(state);
+    this.updatePrestige(state);
     this.updateStats(state, perSecond);
 
     if (this.notationSelect.value !== state.notationMode) {
       this.notationSelect.value = state.notationMode;
     }
+  }
+
+  private updatePrestige(state: GameState): void {
+    const prestige = this.prestigeLayerRows.prestige;
+    prestige.card.classList.toggle("locked", !prestigeUnlocked(state));
+    prestige.levelEl.textContent = ` — Lv ${state.prestigeLevel}`;
+    prestige.actButton.disabled = !canPrestige(state);
+    prestige.requirement.textContent = canPrestige(state)
+      ? "Ready. The number doesn't care, but it'll go up 2% faster."
+      : `Earn ${formatCompact(PRESTIGE_RUN_EARNED_THRESHOLD)} this run (${formatCompact(state.runEarned)} so far).`;
+
+    const ascension = this.prestigeLayerRows.ascension;
+    ascension.card.classList.toggle("locked", !ascensionUnlocked(state));
+    ascension.levelEl.textContent = ` — Lv ${state.ascensionLevel}`;
+    ascension.actButton.disabled = !canAscend(state);
+    ascension.requirement.textContent = canAscend(state)
+      ? "Ready. Your prestiges are forfeit. So is the slow penalty."
+      : `Requires prestige level ${ASCENSION_PRESTIGE_THRESHOLD} (currently ${state.prestigeLevel}).`;
+
+    const transcendence = this.prestigeLayerRows.transcendence;
+    transcendence.card.classList.toggle("locked", !transcendenceUnlocked(state));
+    transcendence.levelEl.textContent = ` — Lv ${state.transcendenceLevel}`;
+    transcendence.actButton.disabled = !canTranscend(state);
+    transcendence.requirement.textContent = canTranscend(state)
+      ? "Ready. Everything goes. Only the hue remembers."
+      : `Requires ascension level ${TRANSCENDENCE_ASCENSION_THRESHOLD} (currently ${state.ascensionLevel}).`;
+  }
+
+  /** Full-screen prestige quote overlay (§6.1). Click anywhere to dismiss. */
+  showOverlay(quote: string): void {
+    this.overlayLayer.innerHTML = "";
+    const quoteEl = el("div", "overlay-quote");
+    quoteEl.textContent = quote;
+    const hint = el("div", "overlay-hint");
+    hint.textContent = "tap to continue";
+    this.overlayLayer.append(quoteEl, hint);
+    this.overlayLayer.style.display = "flex";
+    this.overlayLayer.classList.add("flash");
+    const dismiss = () => {
+      this.overlayLayer.style.display = "none";
+      this.overlayLayer.classList.remove("flash");
+      this.overlayLayer.removeEventListener("pointerdown", dismiss);
+    };
+    this.overlayLayer.addEventListener("pointerdown", dismiss);
   }
 
   /** Red-button corruption + unhinged font scaling (§3.3). */
@@ -197,6 +316,10 @@ export class GameUi {
     } else {
       this.numberDisplay.style.fontSize = "";
     }
+
+    // Transcendence shifts the number's hue 30° per level (§6.3).
+    const hueDegrees = transcendenceHueDegrees(state);
+    this.numberDisplay.style.filter = hueDegrees > 0 ? `hue-rotate(${hueDegrees}deg)` : "";
   }
 
   private syncUpgradeRows(state: GameState): void {
@@ -298,6 +421,15 @@ interface UpgradeRow {
   countEl: HTMLElement;
   costEl: HTMLElement;
   buyButton: HTMLButtonElement;
+}
+
+type PrestigeLayerId = "prestige" | "ascension" | "transcendence";
+
+interface PrestigeLayerRow {
+  card: HTMLElement;
+  levelEl: HTMLElement;
+  requirement: HTMLElement;
+  actButton: HTMLButtonElement;
 }
 
 function el(tag: string, className: string): HTMLElement {

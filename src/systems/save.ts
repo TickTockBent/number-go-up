@@ -59,6 +59,7 @@ export function applyOfflineProgress(
   if (numberGained > 0) {
     state.currentNumber += numberGained;
     state.totalEverEarned += numberGained;
+    state.runEarned += numberGained;
   }
   return { elapsedMs: cappedElapsed, numberGained };
 }

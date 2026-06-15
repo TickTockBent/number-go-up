@@ -4,6 +4,7 @@
 import "./styles.css";
 import { buyUpgrade, performClick } from "./game";
 import { clickPower, passivePerSecond } from "./systems/economy";
+import { doAscend, doPrestige, doTranscend } from "./systems/prestige";
 import { formatCompact, type NotationMode } from "./systems/notation";
 import {
   applyOfflineProgress,
@@ -40,6 +41,18 @@ const ui = new GameUi(appRoot, {
     clearSave();
     state = createDefaultState(Date.now());
     ui.showToast("The number is zero again. It has forgotten you.");
+  },
+  onPrestige: () => {
+    const quote = doPrestige(state);
+    if (quote) ui.showOverlay(quote);
+  },
+  onAscend: () => {
+    const quote = doAscend(state);
+    if (quote) ui.showOverlay(quote);
+  },
+  onTranscend: () => {
+    const quote = doTranscend(state);
+    if (quote) ui.showOverlay(quote);
   },
 });
 

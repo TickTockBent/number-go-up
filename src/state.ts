@@ -12,6 +12,8 @@ export interface GameState {
   // The number, and the number's biography.
   currentNumber: number;
   totalEverEarned: number;
+  /** Number earned since the last prestige/ascension/transcendence reset. Gates prestige. */
+  runEarned: number;
   totalClicks: number;
 
   /** Owned count per upgrade id. Absent id == zero owned. */
@@ -34,6 +36,7 @@ export function createDefaultState(nowMs: number): GameState {
     saveVersion: SAVE_VERSION,
     currentNumber: 0,
     totalEverEarned: 0,
+    runEarned: 0,
     totalClicks: 0,
     upgradeCounts: {},
     prestigeLevel: 0,
@@ -48,9 +51,10 @@ export function ownedCount(state: GameState, upgradeId: string): number {
   return state.upgradeCounts[upgradeId] ?? 0;
 }
 
-/** Adds production to the number, keeping the total-ever odometer in sync. */
+/** Adds production to the number, keeping the total-ever and per-run odometers in sync. */
 export function addToNumber(state: GameState, amount: number): void {
   if (amount <= 0) return;
   state.currentNumber += amount;
   state.totalEverEarned += amount;
+  state.runEarned += amount;
 }
