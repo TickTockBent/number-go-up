@@ -3,7 +3,13 @@
 
 import "./styles.css";
 import { buyUpgrade, performClick } from "./game";
-import { clickPower, passivePerSecond } from "./systems/economy";
+import {
+  type AchievementContext,
+  type AchievementDefinition,
+  evaluateAchievements,
+  unlockAchievement,
+} from "./systems/achievements";
+import { clickPower, passivePerSecond, speedPenaltyFraction } from "./systems/economy";
 import { FunnyNumberDetector } from "./systems/funnyNumbers";
 import { doAscend, doPrestige, doTranscend } from "./systems/prestige";
 import { formatCompact, type NotationMode } from "./systems/notation";
@@ -11,6 +17,7 @@ import {
   applyOfflineProgress,
   clearSave,
   loadState,
+  OFFLINE_CAP_MS,
   saveState,
 } from "./systems/save";
 import { addToNumber, createDefaultState, type GameState } from "./state";
@@ -24,10 +31,20 @@ if (!appRoot) throw new Error("Missing #app root element.");
 
 let state: GameState = loadState(Date.now());
 
+// --- Achievement context tracking ---
+let runStartMs = performance.now(); // Reset on every prestige-layer reset.
+let focusedIdleMs = 0; // Time since last click, accrued only while focused.
+let returnedFromMaxOffline = false;
+
+function announceAchievement(achievement: AchievementDefinition | null): void {
+  if (achievement) ui.showToast(`🏆 ${achievement.name} — ${achievement.description}`);
+}
+
 const ui = new GameUi(appRoot, {
   onClickNumber: (clientX, clientY) => {
     const power = clickPower(state);
     performClick(state);
+    focusedIdleMs = 0; // A click breaks the idle streak.
     ui.spawnClickParticle(clientX, clientY, power, state.notationMode);
     ui.applyClickShake(power);
   },
@@ -37,23 +54,37 @@ const ui = new GameUi(appRoot, {
   },
   onChangeNotation: (mode: NotationMode) => {
     state.notationMode = mode;
+    if (mode === "nerd") announceAchievement(unlockAchievement(state, "notation_nerd"));
+    if (mode === "unhinged") announceAchievement(unlockAchievement(state, "unhinged_mode"));
   },
   onResetSave: () => {
     clearSave();
     state = createDefaultState(Date.now());
+    runStartMs = performance.now();
     ui.showToast("The number is zero again. It has forgotten you.");
   },
   onPrestige: () => {
+    const runElapsedMs = performance.now() - runStartMs;
     const quote = doPrestige(state);
-    if (quote) ui.showOverlay(quote);
+    if (!quote) return;
+    runStartMs = performance.now();
+    if (runElapsedMs < 60_000) announceAchievement(unlockAchievement(state, "prestige_within_60_seconds"));
+    ui.showOverlay(quote);
   },
   onAscend: () => {
     const quote = doAscend(state);
-    if (quote) ui.showOverlay(quote);
+    if (!quote) return;
+    runStartMs = performance.now();
+    ui.showOverlay(quote);
   },
   onTranscend: () => {
     const quote = doTranscend(state);
-    if (quote) ui.showOverlay(quote);
+    if (!quote) return;
+    runStartMs = performance.now();
+    ui.showOverlay(quote);
+  },
+  onOpenCards: () => {
+    announceAchievement(unlockAchievement(state, "card_collector"));
   },
 });
 
@@ -64,6 +95,8 @@ if (offline.numberGained >= 1) {
     `While you were gone, the number went up by ${formatCompact(offline.numberGained)}. It didn't miss you.`,
   );
 }
+// Returning from the full 8h cap arms the "Alt-Tabbed" achievement (§10.5).
+if (offline.elapsedMs >= OFFLINE_CAP_MS) returnedFromMaxOffline = true;
 
 // --- Fixed-step loop ------------------------------------------------------
 const funnyNumberDetector = new FunnyNumberDetector();
@@ -88,6 +121,22 @@ function frame(nowMs: number): void {
       (state.funnyNumberSightings[funnyNumber.pattern] ?? 0) + 1;
     ui.spawnFunnyPopup(funnyNumber, state.notationMode);
     // Audio stinger (§7.4) is wired in the audio milestone.
+  }
+
+  // Idle achievements only accrue while the window is actually focused (§10.5).
+  if (document.visibilityState === "visible" && document.hasFocus()) {
+    focusedIdleMs += deltaMs;
+  }
+
+  const achievementContext: AchievementContext = {
+    speedPenalty: speedPenaltyFraction(state),
+    focusedIdleMs,
+    statsTabIdleMs: ui.getStatsTabIdleMs(),
+    runElapsedMs: nowMs - runStartMs,
+    returnedFromMaxOffline,
+  };
+  for (const unlocked of evaluateAchievements(state, achievementContext)) {
+    announceAchievement(unlocked);
   }
 
   if (msSinceAutosave >= AUTOSAVE_INTERVAL_MS) {

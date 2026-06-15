@@ -28,6 +28,7 @@ export function loadState(nowMs: number): GameState {
     merged.saveVersion = SAVE_VERSION;
     merged.upgradeCounts = { ...parsed.upgradeCounts };
     merged.funnyNumberSightings = { ...parsed.funnyNumberSightings };
+    merged.unlockedAchievements = { ...parsed.unlockedAchievements };
     return merged;
   } catch (error) {
     console.warn("Save was corrupt, starting fresh:", error);

@@ -30,6 +30,9 @@ export interface GameState {
    */
   funnyNumberSightings: Record<string, number>;
 
+  /** Achievement ids that have been unlocked. Persists across all resets (§10). */
+  unlockedAchievements: Record<string, boolean>;
+
   // Settings (§13).
   notationMode: NotationMode;
 
@@ -49,6 +52,7 @@ export function createDefaultState(nowMs: number): GameState {
     ascensionLevel: 0,
     transcendenceLevel: 0,
     funnyNumberSightings: {},
+    unlockedAchievements: {},
     notationMode: "enjoyer", // Default per §3.2 — keeps 7-digit funny numbers visible.
     lastSavedAtMs: nowMs,
   };

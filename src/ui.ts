@@ -1,14 +1,22 @@
 // DOM construction and per-frame updates. Vanilla TS, no framework — the UI is
 // "two numbers and some buttons" (GDD §14), so the runtime stays tiny.
 
+import { TRADING_CARDS } from "./data/cards";
 import { UPGRADE_DEFINITIONS, type UpgradeDefinition } from "./data/upgrades";
 import {
+  ACHIEVEMENTS,
+  CANONICAL_ACHIEVEMENT_COUNT,
+  isAchievementUnlocked,
+  unlockedCount,
+} from "./systems/achievements";
+import {
   canAfford,
+  clickPower,
   isUnlocked,
   nextCostFor,
   passivePerSecond,
 } from "./systems/economy";
-import type { FunnyNumberDefinition } from "./systems/funnyNumbers";
+import { FUNNY_NUMBERS, type FunnyNumberDefinition } from "./systems/funnyNumbers";
 import { formatCompact, formatNumber, NOTATION_LABELS, type NotationMode } from "./systems/notation";
 import {
   ASCENSION_PRESTIGE_THRESHOLD,
@@ -24,7 +32,7 @@ import {
 } from "./systems/prestige";
 import { ownedCount, type GameState } from "./state";
 
-type TabId = "upgrades" | "prestige" | "stats" | "settings";
+type TabId = "upgrades" | "prestige" | "achievements" | "stats" | "cards" | "settings";
 
 export interface UiCallbacks {
   onClickNumber: (clientX: number, clientY: number) => void;
@@ -34,6 +42,7 @@ export interface UiCallbacks {
   onPrestige: () => void;
   onAscend: () => void;
   onTranscend: () => void;
+  onOpenCards: () => void;
 }
 
 // Screen-shake thresholds keyed off click power (§4.1).
@@ -54,6 +63,9 @@ export class GameUi {
   private notationSelect!: HTMLSelectElement;
   private prestigeLayerRows!: Record<PrestigeLayerId, PrestigeLayerRow>;
   private overlayLayer!: HTMLElement;
+  private achievementCountEl!: HTMLElement;
+  private achievementRows!: Map<string, AchievementRow>;
+  private sightingsListEl!: HTMLElement;
 
   /** Per-upgrade row element refs, built lazily as upgrades unlock. */
   private upgradeRows = new Map<string, UpgradeRow>();
@@ -61,10 +73,22 @@ export class GameUi {
 
   private activeTab: TabId = "upgrades";
 
+  // "The Long Stare" tracking: ms the Stats tab has been open with no input.
+  private statsTabIdleMs = 0;
+  private lastClockMs = performance.now();
+
   constructor(root: HTMLElement, callbacks: UiCallbacks) {
     this.root = root;
     this.callbacks = callbacks;
     this.build();
+    // Any input anywhere resets the stats-stare timer.
+    const resetStare = () => { this.statsTabIdleMs = 0; };
+    this.root.addEventListener("pointerdown", resetStare, true);
+    window.addEventListener("keydown", resetStare, true);
+  }
+
+  getStatsTabIdleMs(): number {
+    return this.statsTabIdleMs;
   }
 
   private build(): void {
@@ -92,7 +116,9 @@ export class GameUi {
     const tabDefs: Array<{ id: TabId; label: string }> = [
       { id: "upgrades", label: "Upgrades" },
       { id: "prestige", label: "Prestige" },
+      { id: "achievements", label: "Achievements" },
       { id: "stats", label: "Stats" },
+      { id: "cards", label: "Cards" },
       { id: "settings", label: "Settings" },
     ];
     for (const tab of tabDefs) {
@@ -105,14 +131,18 @@ export class GameUi {
 
     this.tabPanels.upgrades = this.buildUpgradesPanel();
     this.tabPanels.prestige = this.buildPrestigePanel();
+    this.tabPanels.achievements = this.buildAchievementsPanel();
     this.tabPanels.stats = this.buildStatsPanel();
+    this.tabPanels.cards = this.buildCardsPanel();
     this.tabPanels.settings = this.buildSettingsPanel();
 
     const panelHost = el("div", "panel-host");
     panelHost.append(
       this.tabPanels.upgrades,
       this.tabPanels.prestige,
+      this.tabPanels.achievements,
       this.tabPanels.stats,
+      this.tabPanels.cards,
       this.tabPanels.settings,
     );
 
@@ -177,6 +207,48 @@ export class GameUi {
     return panel;
   }
 
+  private buildAchievementsPanel(): HTMLElement {
+    const panel = el("section", "panel");
+    this.achievementCountEl = el("div", "achievement-count");
+    panel.append(this.achievementCountEl);
+
+    this.achievementRows = new Map();
+    const list = el("div", "achievement-list");
+    for (const achievement of ACHIEVEMENTS) {
+      if (achievement.bonus) continue; // Easter egg stays off the list.
+      const row = el("div", "achievement-row");
+      const name = el("div", "achievement-name");
+      const desc = el("div", "achievement-desc");
+      row.append(name, desc);
+      list.append(row);
+      this.achievementRows.set(achievement.id, { row, name, desc });
+    }
+    panel.append(list);
+    return panel;
+  }
+
+  private buildCardsPanel(): HTMLElement {
+    // Static showcase of the base-game trading cards (§11.1). Opening this tab
+    // is what unlocks "Card Collector" — handled in setActiveTab.
+    const panel = el("section", "panel");
+    const intro = el("div", "cards-intro");
+    intro.textContent = "Steam Trading Cards. You can't collect them here. You just look.";
+    const grid = el("div", "cards-grid");
+    for (const card of TRADING_CARDS) {
+      const cardEl = el("div", "trading-card");
+      cardEl.classList.add(`card-${card.rarity}`);
+      cardEl.style.setProperty("--card-bg", card.background);
+      const face = el("div", "trading-card-face");
+      face.textContent = card.face;
+      const rarity = el("div", "trading-card-rarity");
+      rarity.textContent = card.rarity;
+      cardEl.append(face, rarity);
+      grid.append(cardEl);
+    }
+    panel.append(intro, grid);
+    return panel;
+  }
+
   private buildStatsPanel(): HTMLElement {
     const panel = el("section", "panel");
     this.statValues = {};
@@ -184,7 +256,12 @@ export class GameUi {
       { key: "current", label: "Current number" },
       { key: "totalEver", label: "Total ever earned" },
       { key: "perSecond", label: "Per second" },
+      { key: "clickPower", label: "Per click" },
       { key: "totalClicks", label: "Total clicks" },
+      { key: "prestige", label: "Prestige level" },
+      { key: "ascension", label: "Ascension level" },
+      { key: "transcendence", label: "Transcendence level" },
+      { key: "achievements", label: "Achievements" },
     ];
     for (const row of rows) {
       const statRow = el("div", "stat-row");
@@ -195,6 +272,14 @@ export class GameUi {
       statRow.append(label, value);
       panel.append(statRow);
     }
+
+    // Funny number sightings — the stat that never resets (§7.5).
+    const sightingsHeader = el("div", "stat-section-header");
+    sightingsHeader.textContent = "FUNNY NUMBER SIGHTINGS";
+    panel.append(sightingsHeader);
+    this.sightingsListEl = el("div", "sightings-list");
+    panel.append(this.sightingsListEl);
+
     return panel;
   }
 
@@ -232,6 +317,8 @@ export class GameUi {
 
   private setActiveTab(tabId: TabId): void {
     this.activeTab = tabId;
+    this.statsTabIdleMs = 0; // Switching tabs resets the stare timer.
+    if (tabId === "cards") this.callbacks.onOpenCards();
     for (const id of Object.keys(this.tabPanels) as TabId[]) {
       const isActive = id === tabId;
       this.tabPanels[id].classList.toggle("active", isActive);
@@ -242,6 +329,12 @@ export class GameUi {
   // --- Per-frame update -----------------------------------------------------
 
   update(state: GameState): void {
+    // Advance the "Long Stare" clock while the Stats tab sits open and idle.
+    const nowMs = performance.now();
+    const deltaMs = nowMs - this.lastClockMs;
+    this.lastClockMs = nowMs;
+    if (this.activeTab === "stats") this.statsTabIdleMs += deltaMs;
+
     const flooredNumber = Math.floor(state.currentNumber);
     this.numberDisplay.textContent = formatNumber(flooredNumber, state.notationMode);
     this.applyNumberVisualState(state);
@@ -252,9 +345,34 @@ export class GameUi {
     this.syncUpgradeRows(state);
     this.updatePrestige(state);
     this.updateStats(state, perSecond);
+    this.updateAchievements(state);
 
     if (this.notationSelect.value !== state.notationMode) {
       this.notationSelect.value = state.notationMode;
+    }
+  }
+
+  private updateAchievements(state: GameState): void {
+    this.achievementCountEl.textContent =
+      `${unlockedCount(state)} / ${CANONICAL_ACHIEVEMENT_COUNT} unlocked`;
+
+    for (const achievement of ACHIEVEMENTS) {
+      if (achievement.bonus) continue;
+      const row = this.achievementRows.get(achievement.id);
+      if (!row) continue;
+      const unlocked = isAchievementUnlocked(state, achievement.id);
+      row.row.classList.toggle("unlocked", unlocked);
+      // Hidden + still locked shows "???" (§10).
+      if (unlocked) {
+        row.name.textContent = achievement.name;
+        row.desc.textContent = achievement.description;
+      } else if (achievement.hidden) {
+        row.name.textContent = "???";
+        row.desc.textContent = "Hidden. Keep going.";
+      } else {
+        row.name.textContent = achievement.name;
+        row.desc.textContent = achievement.description;
+      }
     }
   }
 
@@ -377,7 +495,28 @@ export class GameUi {
     this.statValues.current.textContent = formatNumber(Math.floor(state.currentNumber), state.notationMode);
     this.statValues.totalEver.textContent = formatNumber(Math.floor(state.totalEverEarned), state.notationMode);
     this.statValues.perSecond.textContent = formatCompact(perSecond);
+    this.statValues.clickPower.textContent = formatCompact(clickPower(state));
     this.statValues.totalClicks.textContent = state.totalClicks.toLocaleString("en-US");
+    this.statValues.prestige.textContent = String(state.prestigeLevel);
+    this.statValues.ascension.textContent = String(state.ascensionLevel);
+    this.statValues.transcendence.textContent = String(state.transcendenceLevel);
+    this.statValues.achievements.textContent = `${unlockedCount(state)} / ${CANONICAL_ACHIEVEMENT_COUNT}`;
+    this.updateSightings(state);
+  }
+
+  private updateSightings(state: GameState): void {
+    this.sightingsListEl.innerHTML = "";
+    for (const funnyNumber of FUNNY_NUMBERS) {
+      const count = state.funnyNumberSightings[funnyNumber.pattern] ?? 0;
+      const row = el("div", "sighting-row");
+      const label = el("span", "sighting-label");
+      label.textContent = funnyNumber.label;
+      label.style.color = funnyNumber.color;
+      const value = el("span", "sighting-value");
+      value.textContent = count.toLocaleString("en-US");
+      row.append(label, value);
+      this.sightingsListEl.append(row);
+    }
   }
 
   // --- Effects --------------------------------------------------------------
@@ -460,6 +599,12 @@ interface PrestigeLayerRow {
   levelEl: HTMLElement;
   requirement: HTMLElement;
   actButton: HTMLButtonElement;
+}
+
+interface AchievementRow {
+  row: HTMLElement;
+  name: HTMLElement;
+  desc: HTMLElement;
 }
 
 function el(tag: string, className: string): HTMLElement {

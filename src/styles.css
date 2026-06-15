@@ -319,6 +319,115 @@ body {
 .stat-label { color: var(--text-dim); }
 .stat-value { font-family: ui-monospace, monospace; color: var(--accent); }
 
+/* --- Achievements --- */
+.achievement-count {
+  font-family: ui-monospace, monospace;
+  color: var(--accent);
+  font-size: 15px;
+  padding: 4px 2px 10px;
+}
+
+.achievement-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.achievement-row {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-left: 3px solid #2a2f36;
+  border-radius: 8px;
+  padding: 10px 14px;
+  opacity: 0.55;
+}
+
+.achievement-row.unlocked {
+  opacity: 1;
+  border-left-color: var(--accent);
+}
+
+.achievement-name {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.achievement-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* --- Trading cards (§11) --- */
+.cards-intro {
+  font-size: 13px;
+  color: var(--text-dim);
+  padding: 4px 2px 12px;
+}
+
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 12px;
+}
+
+.trading-card {
+  aspect-ratio: 2 / 3;
+  background: var(--card-bg, #2a2f36);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.trading-card-face {
+  font-family: ui-monospace, monospace;
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.card-rare .trading-card-face { color: gold; font-size: 40px; text-shadow: 0 0 12px gold; }
+.card-legendary .trading-card-face { color: #e070ff; text-shadow: 0 0 12px #e070ff; }
+.card-cursed .trading-card-face { color: #ff3030; }
+.card-uncommon .trading-card-face { color: #88aaff; }
+
+.trading-card-rarity {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* --- Stats sections --- */
+.stat-section-header {
+  margin-top: 14px;
+  padding: 6px 2px;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.sightings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.sighting-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 14px;
+  font-size: 13px;
+}
+
+.sighting-label { font-weight: 700; font-family: "Impact", sans-serif; letter-spacing: 0.5px; }
+.sighting-value { font-family: ui-monospace, monospace; color: var(--text-dim); }
+
 /* --- Settings --- */
 .setting-row {
   display: flex;
