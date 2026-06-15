@@ -19,10 +19,16 @@ export interface GameState {
   /** Owned count per upgrade id. Absent id == zero owned. */
   upgradeCounts: Record<string, number>;
 
-  // Prestige layers (§6) — present in the schema, wired in a later milestone.
+  // Prestige layers (§6).
   prestigeLevel: number;
   ascensionLevel: number;
   transcendenceLevel: number;
+
+  /**
+   * Lifetime sighting count per funny-number pattern (§7.5). This is the one
+   * stat that never resets — not on prestige, ascension, or transcendence.
+   */
+  funnyNumberSightings: Record<string, number>;
 
   // Settings (§13).
   notationMode: NotationMode;
@@ -42,6 +48,7 @@ export function createDefaultState(nowMs: number): GameState {
     prestigeLevel: 0,
     ascensionLevel: 0,
     transcendenceLevel: 0,
+    funnyNumberSightings: {},
     notationMode: "enjoyer", // Default per §3.2 — keeps 7-digit funny numbers visible.
     lastSavedAtMs: nowMs,
   };

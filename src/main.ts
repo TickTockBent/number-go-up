@@ -4,6 +4,7 @@
 import "./styles.css";
 import { buyUpgrade, performClick } from "./game";
 import { clickPower, passivePerSecond } from "./systems/economy";
+import { FunnyNumberDetector } from "./systems/funnyNumbers";
 import { doAscend, doPrestige, doTranscend } from "./systems/prestige";
 import { formatCompact, type NotationMode } from "./systems/notation";
 import {
@@ -65,6 +66,7 @@ if (offline.numberGained >= 1) {
 }
 
 // --- Fixed-step loop ------------------------------------------------------
+const funnyNumberDetector = new FunnyNumberDetector();
 let accumulatedMs = 0;
 let lastFrameMs = performance.now();
 let msSinceAutosave = 0;
@@ -78,6 +80,14 @@ function frame(nowMs: number): void {
   while (accumulatedMs >= LOGIC_TICK_MS) {
     stepLogic(LOGIC_TICK_MS / 1000);
     accumulatedMs -= LOGIC_TICK_MS;
+  }
+
+  const funnyNumber = funnyNumberDetector.poll(state.currentNumber, nowMs);
+  if (funnyNumber) {
+    state.funnyNumberSightings[funnyNumber.pattern] =
+      (state.funnyNumberSightings[funnyNumber.pattern] ?? 0) + 1;
+    ui.spawnFunnyPopup(funnyNumber, state.notationMode);
+    // Audio stinger (§7.4) is wired in the audio milestone.
   }
 
   if (msSinceAutosave >= AUTOSAVE_INTERVAL_MS) {

@@ -8,6 +8,7 @@ import {
   nextCostFor,
   passivePerSecond,
 } from "./systems/economy";
+import type { FunnyNumberDefinition } from "./systems/funnyNumbers";
 import { formatCompact, formatNumber, NOTATION_LABELS, type NotationMode } from "./systems/notation";
 import {
   ASCENSION_PRESTIGE_THRESHOLD,
@@ -390,6 +391,35 @@ export class GameUi {
     particle.style.top = `${clientY}px`;
     this.particleLayer.append(particle);
     particle.addEventListener("animationend", () => particle.remove());
+  }
+
+  /** Spawns a funny-number popup at a random position with a burst animation (§7.2). */
+  spawnFunnyPopup(funnyNumber: FunnyNumberDefinition, notationMode: NotationMode): void {
+    const popup = el("div", "funny-popup");
+    popup.textContent = funnyNumber.label;
+    popup.style.color = funnyNumber.color;
+    popup.style.fontSize = `${funnyNumber.size}px`;
+    popup.style.textShadow = `0 0 16px ${funnyNumber.color}`;
+
+    // Random position (§7.2): 10-70% horizontal, 15-45% vertical, ±25° rotation.
+    const horizontalPercent = 10 + Math.random() * 60;
+    const verticalPercent = 15 + Math.random() * 30;
+    const rotationDegrees = (Math.random() - 0.5) * 50;
+    popup.style.left = `${horizontalPercent}%`;
+    popup.style.top = `${verticalPercent}%`;
+    popup.style.setProperty("--rot", `${rotationDegrees}deg`);
+
+    // In abbreviated/scientific modes the digits aren't visible, so the popup is
+    // smaller and hints to switch (§7.1).
+    if (notationMode === "normal" || notationMode === "nerd") {
+      popup.classList.add("hidden-in-notation");
+      const hint = el("span", "funny-hint");
+      hint.textContent = " [hidden in notation]";
+      popup.append(hint);
+    }
+
+    this.particleLayer.append(popup);
+    popup.addEventListener("animationend", () => popup.remove());
   }
 
   /** Screen shake scaled to click power (§4.1). */

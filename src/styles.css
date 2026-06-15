@@ -372,6 +372,36 @@ body {
   100% { opacity: 0; transform: translate(-50%, -130%) scale(1.1); }
 }
 
+/* --- Funny number popups (§7.2) --- */
+.funny-popup {
+  position: absolute;
+  transform: translate(-50%, -50%) rotate(var(--rot, 0deg));
+  font-family: "Impact", "Arial Black", sans-serif;
+  font-weight: 900;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  animation: funny-burst 2.2s ease-out forwards;
+}
+
+.funny-popup.hidden-in-notation {
+  font-size: 18px !important;
+  opacity: 0.8;
+}
+
+.funny-hint {
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+@keyframes funny-burst {
+  0% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) scale(0.2); }
+  15% { opacity: 1; transform: translate(-50%, -50%) rotate(var(--rot, 0deg)) scale(1.5); }
+  30% { transform: translate(-50%, -60%) rotate(var(--rot, 0deg)) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -130%) rotate(var(--rot, 0deg)) scale(1); }
+}
+
 /* --- Toasts (trap messages, offline return) --- */
 .toast-layer {
   display: flex;
