@@ -71,6 +71,11 @@ export interface GameState {
   notationMode: NotationMode;
   settings: GameSettings;
 
+  // Heavy Wallet DLC (§8). `active` is derived from Steam at boot (not really a
+  // save field); `accepted` records that the player clicked ACCEPT YOUR FATE.
+  heavyWalletActive: boolean;
+  heavyWalletAccepted: boolean;
+
   /** Wall-clock ms timestamp of the last save, used for offline progress (§9.1). */
   lastSavedAtMs: number;
 }
@@ -90,6 +95,8 @@ export function createDefaultState(nowMs: number): GameState {
     unlockedAchievements: {},
     notationMode: "enjoyer", // Default per §3.2 — keeps 7-digit funny numbers visible.
     settings: createDefaultSettings(),
+    heavyWalletActive: false,
+    heavyWalletAccepted: false,
     lastSavedAtMs: nowMs,
   };
 }

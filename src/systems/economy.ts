@@ -70,6 +70,9 @@ export function globalProductionMultiplier(state: GameState): number {
   const ascensionFactor = Math.pow(1.1, state.ascensionLevel);
   const transcendenceFactor = additiveLevelBonus(state.transcendenceLevel, 0.05);
 
+  // Heavy Wallet DLC: a permanent, irremovable ×0.99999 (-0.001%) (§8.2).
+  const heavyWalletFactor = state.heavyWalletActive ? 0.99999 : 1;
+
   return (
     slowFactor *
     fasterFactor *
@@ -78,7 +81,8 @@ export function globalProductionMultiplier(state: GameState): number {
     mysteryFactor *
     prestigeFactor *
     ascensionFactor *
-    transcendenceFactor
+    transcendenceFactor *
+    heavyWalletFactor
   );
 }
 

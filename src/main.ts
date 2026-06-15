@@ -13,6 +13,7 @@ import { AudioEngine } from "./systems/audio";
 import { clickPower, passivePerSecond, speedPenaltyFraction } from "./systems/economy";
 import { FunnyNumberDetector } from "./systems/funnyNumbers";
 import { doAscend, doPrestige, doTranscend } from "./systems/prestige";
+import { getSteamClient, HEAVY_WALLET_DLC_ID } from "./systems/steam";
 import { ownedCount } from "./state";
 import { UPGRADES_BY_ID } from "./data/upgrades";
 import { formatCompact, type NotationMode } from "./systems/notation";
@@ -32,7 +33,12 @@ const AUTOSAVE_INTERVAL_MS = 5_000;
 const appRoot = document.getElementById("app");
 if (!appRoot) throw new Error("Missing #app root element.");
 
-let state: GameState = loadState(Date.now());
+const loadResult = loadState(Date.now());
+let state: GameState = loadResult.state;
+
+// --- Steam + Heavy Wallet DLC (§8) ---
+const steam = getSteamClient();
+state.heavyWalletActive = steam.isDlcInstalled(HEAVY_WALLET_DLC_ID);
 
 // --- Achievement context tracking ---
 let runStartMs = performance.now(); // Reset on every prestige-layer reset.
@@ -47,6 +53,7 @@ function announceAchievement(achievement: AchievementDefinition | null): void {
   if (!achievement) return;
   ui.showToast(`🏆 ${achievement.name} — ${achievement.description}`);
   ui.announce(`Achievement unlocked: ${achievement.name}`);
+  steam.unlockAchievement(achievement.id); // Forward to Steam (no-op under the mock).
 }
 
 /** Reapplies side-effectful settings (audio, auto-click) and persists. */
@@ -151,6 +158,26 @@ if (state.settings.offlineProgress) {
   }
   // Returning from the full 8h cap arms the "Alt-Tabbed" achievement (§10.5).
   if (offline.elapsedMs >= OFFLINE_CAP_MS) returnedFromMaxOffline = true;
+}
+
+// Save-corruption easter egg (§9.3): a checksum mismatch shows "CHEATER" for
+// 60s (production keeps running) and unlocks "Caught Red-Handed".
+if (loadResult.tampered) {
+  ui.triggerCheaterMode(60_000);
+  announceAchievement(unlockAchievement(state, "caught_red_handed"));
+}
+
+// Heavy Wallet DLC flow (§8.1): show ACCEPT YOUR FATE once, then it's forever.
+if (state.heavyWalletActive) {
+  if (!state.heavyWalletAccepted) {
+    ui.showHeavyWalletOverlay(() => {
+      state.heavyWalletAccepted = true;
+      announceAchievement(unlockAchievement(state, "heavy_wallet"));
+      saveState(state, Date.now());
+    });
+  } else {
+    announceAchievement(unlockAchievement(state, "heavy_wallet"));
+  }
 }
 
 // --- Fixed-step loop ------------------------------------------------------

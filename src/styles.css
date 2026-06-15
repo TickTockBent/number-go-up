@@ -84,10 +84,45 @@ body {
   96% { opacity: 1; }
 }
 
+.number-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.wallet-icon {
+  font-size: 20px;
+  opacity: 0.85;
+  cursor: help;
+  user-select: none;
+}
+
 .rate-display {
   font-family: "Consolas", ui-monospace, monospace;
   font-size: 18px;
   color: var(--text-dim);
+}
+
+/* Heavy Wallet overlay (§8.1) */
+.overlay-body {
+  max-width: 560px;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #c9d4e0;
+}
+
+.overlay-accept {
+  margin-top: 8px;
+  background: #2a1416;
+  border: 1px solid #5a2a2a;
+  color: #ff8888;
+  padding: 12px 28px;
+  border-radius: 8px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
 }
 
 /* --- Tabs --- */

@@ -71,6 +71,9 @@ export class GameUi {
   private sightingsListEl!: HTMLElement;
   private settingRefreshers: Array<() => void> = [];
   private colorHueRow!: { row: HTMLElement; input: HTMLInputElement };
+  private walletIcon!: HTMLElement;
+  /** While now < this timestamp, the number reads "CHEATER" (§9.3). */
+  private cheaterUntilMs = 0;
 
   /** Per-upgrade row element refs, built lazily as upgrades unlock. */
   private upgradeRows = new Map<string, UpgradeRow>();
@@ -106,13 +109,19 @@ export class GameUi {
 
     // --- Number stage ---
     const stage = el("div", "stage");
+    const numberRow = el("div", "number-row");
+    this.walletIcon = el("div", "wallet-icon");
+    this.walletIcon.textContent = "💰";
+    this.walletIcon.title = "$4.99";
+    this.walletIcon.style.display = "none";
     this.numberDisplay = el("button", "number-display");
     this.numberDisplay.setAttribute("aria-label", "The number. Click it.");
     this.numberDisplay.addEventListener("pointerdown", (event) => {
       this.callbacks.onClickNumber(event.clientX, event.clientY);
     });
+    numberRow.append(this.walletIcon, this.numberDisplay);
     this.rateDisplay = el("div", "rate-display");
-    stage.append(this.numberDisplay, this.rateDisplay);
+    stage.append(numberRow, this.rateDisplay);
 
     this.particleLayer = el("div", "particle-layer");
     this.toastLayer = el("div", "toast-layer");
@@ -518,8 +527,13 @@ export class GameUi {
     if (this.activeTab === "settings") this.refreshSettingsControls(state);
 
     const flooredNumber = Math.floor(state.currentNumber);
-    this.numberDisplay.textContent = formatNumber(flooredNumber, state.notationMode);
+    // Save-corruption easter egg: the number reads "CHEATER" for 60s while
+    // production silently continues underneath (§9.3).
+    this.numberDisplay.textContent = nowMs < this.cheaterUntilMs
+      ? "CHEATER"
+      : formatNumber(flooredNumber, state.notationMode);
     this.applyNumberVisualState(state);
+    this.walletIcon.style.display = state.heavyWalletActive ? "" : "none";
 
     const perSecond = passivePerSecond(state);
     this.rateDisplay.textContent = `${formatCompact(perSecond)} / s`;
@@ -607,6 +621,31 @@ export class GameUi {
     transcendence.requirement.textContent = canTranscend(state)
       ? "Ready. Everything goes. Only the hue remembers."
       : `Requires ascension level ${TRANSCENDENCE_ASCENSION_THRESHOLD} (currently ${state.ascensionLevel}).`;
+  }
+
+  /** Make the number read "CHEATER" for the given duration (§9.3). */
+  triggerCheaterMode(durationMs: number): void {
+    this.cheaterUntilMs = performance.now() + durationMs;
+  }
+
+  /** Heavy Wallet "ACCEPT YOUR FATE" overlay (§8.1) — a single, inescapable button. */
+  showHeavyWalletOverlay(onAccept: () => void): void {
+    this.overlayLayer.innerHTML = "";
+    const title = el("div", "overlay-quote");
+    title.textContent = "HEAVY WALLET EQUIPPED";
+    const body = el("div", "overlay-body");
+    body.textContent =
+      "All number production has been permanently reduced by 0.001%. " +
+      "This cannot be undone. This cannot be uninstalled. " +
+      "You paid $4.99 for this. The base game was $0.99. Thank you for your support.";
+    const accept = el("button", "overlay-accept") as HTMLButtonElement;
+    accept.textContent = "ACCEPT YOUR FATE";
+    accept.addEventListener("click", () => {
+      this.overlayLayer.style.display = "none";
+      onAccept();
+    });
+    this.overlayLayer.append(title, body, accept);
+    this.overlayLayer.style.display = "flex";
   }
 
   /** Full-screen prestige quote overlay (§6.1). Click anywhere to dismiss. */
