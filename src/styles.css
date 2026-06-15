@@ -456,6 +456,77 @@ body {
   cursor: pointer;
 }
 
+.toggle-button {
+  background: #16202b;
+  border: 1px solid var(--panel-border);
+  color: var(--text-dim);
+  padding: 6px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  min-width: 64px;
+}
+
+.toggle-button.on {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.mini-button {
+  margin-left: 8px;
+  background: #16202b;
+  border: 1px solid var(--panel-border);
+  color: var(--text-dim);
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.setting-slider {
+  width: 160px;
+  accent-color: var(--accent);
+}
+
+.setting-row.locked {
+  opacity: 0.45;
+}
+
+/* Screen-reader-only live region (§13.3). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Accessibility modes (§13.3) --- */
+.reduced-motion *,
+.reduced-motion *::before,
+.reduced-motion *::after {
+  animation-duration: 0.001s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001s !important;
+}
+
+.high-contrast {
+  --text-dim: #d8e2ee;
+  --accent: #66ffaa;
+}
+.high-contrast .upgrade-desc,
+.high-contrast .prestige-requirement,
+.high-contrast .achievement-desc {
+  color: #c8d4e0;
+}
+
+.cb-protanopia { filter: url(#cb-protanopia); }
+.cb-deuteranopia { filter: url(#cb-deuteranopia); }
+.cb-tritanopia { filter: url(#cb-tritanopia); }
+
 /* --- Click particles (§4.1) --- */
 .particle-layer,
 .toast-layer {

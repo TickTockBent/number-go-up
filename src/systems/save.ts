@@ -1,7 +1,7 @@
 // Save / load. Milestone 1 persists to localStorage; the Tauri milestone swaps
 // this for a file-backed store + Steam Cloud (§9.2) behind the same interface.
 
-import { createDefaultState, SAVE_VERSION, type GameState } from "../state";
+import { createDefaultSettings, createDefaultState, SAVE_VERSION, type GameState } from "../state";
 
 const SAVE_KEY = "number-goes-up:save";
 
@@ -29,6 +29,13 @@ export function loadState(nowMs: number): GameState {
     merged.upgradeCounts = { ...parsed.upgradeCounts };
     merged.funnyNumberSightings = { ...parsed.funnyNumberSightings };
     merged.unlockedAchievements = { ...parsed.unlockedAchievements };
+    // Deep-merge settings so new options pick up defaults on older saves.
+    const defaultSettings = createDefaultSettings();
+    merged.settings = {
+      ...defaultSettings,
+      ...parsed.settings,
+      volumes: { ...defaultSettings.volumes, ...parsed.settings?.volumes },
+    };
     return merged;
   } catch (error) {
     console.warn("Save was corrupt, starting fresh:", error);

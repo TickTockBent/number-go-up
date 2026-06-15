@@ -6,6 +6,40 @@ import type { NotationMode } from "./systems/notation";
 
 export const SAVE_VERSION = 1;
 
+export type ScreenShakeMode = "on" | "off" | "max";
+export type ColorblindMode = "none" | "protanopia" | "deuteranopia" | "tritanopia";
+
+/** Player settings (GDD §13). */
+export interface GameSettings {
+  offlineProgress: boolean;
+  screenShake: ScreenShakeMode;
+  funnyPopups: boolean;
+  /** Manual number-hue override in degrees; null = derive from transcendence. Locked unless transcended. */
+  numberColorHue: number | null;
+  volumes: { master: number; music: number; sfx: number; stinger: number };
+  // Accessibility (§13.3)
+  reducedMotion: boolean;
+  highContrast: boolean;
+  screenReader: boolean;
+  autoClick: boolean;
+  colorblindMode: ColorblindMode;
+}
+
+export function createDefaultSettings(): GameSettings {
+  return {
+    offlineProgress: true,
+    screenShake: "on",
+    funnyPopups: true,
+    numberColorHue: null,
+    volumes: { master: 0.8, music: 0.6, sfx: 0.9, stinger: 1.0 },
+    reducedMotion: false,
+    highContrast: false,
+    screenReader: false,
+    autoClick: false,
+    colorblindMode: "none",
+  };
+}
+
 export interface GameState {
   saveVersion: number;
 
@@ -35,6 +69,7 @@ export interface GameState {
 
   // Settings (§13).
   notationMode: NotationMode;
+  settings: GameSettings;
 
   /** Wall-clock ms timestamp of the last save, used for offline progress (§9.1). */
   lastSavedAtMs: number;
@@ -54,6 +89,7 @@ export function createDefaultState(nowMs: number): GameState {
     funnyNumberSightings: {},
     unlockedAchievements: {},
     notationMode: "enjoyer", // Default per §3.2 — keeps 7-digit funny numbers visible.
+    settings: createDefaultSettings(),
     lastSavedAtMs: nowMs,
   };
 }

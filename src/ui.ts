@@ -17,6 +17,7 @@ import {
   passivePerSecond,
 } from "./systems/economy";
 import { FUNNY_NUMBERS, type FunnyNumberDefinition } from "./systems/funnyNumbers";
+import type { ScreenShakeMode } from "./state";
 import { formatCompact, formatNumber, NOTATION_LABELS, type NotationMode } from "./systems/notation";
 import {
   ASCENSION_PRESTIGE_THRESHOLD,
@@ -43,6 +44,8 @@ export interface UiCallbacks {
   onAscend: () => void;
   onTranscend: () => void;
   onOpenCards: () => void;
+  /** A setting changed; the host reapplies audio volumes, auto-click, and persists. */
+  onSettingsChanged: () => void;
 }
 
 // Screen-shake thresholds keyed off click power (§4.1).
@@ -66,6 +69,8 @@ export class GameUi {
   private achievementCountEl!: HTMLElement;
   private achievementRows!: Map<string, AchievementRow>;
   private sightingsListEl!: HTMLElement;
+  private settingRefreshers: Array<() => void> = [];
+  private colorHueRow!: { row: HTMLElement; input: HTMLInputElement };
 
   /** Per-upgrade row element refs, built lazily as upgrades unlock. */
   private upgradeRows = new Map<string, UpgradeRow>();
@@ -76,6 +81,10 @@ export class GameUi {
   // "The Long Stare" tracking: ms the Stats tab has been open with no input.
   private statsTabIdleMs = 0;
   private lastClockMs = performance.now();
+
+  /** Live state reference, refreshed every frame; settings controls read/write it. */
+  private currentState!: GameState;
+  private ariaLiveRegion!: HTMLElement;
 
   constructor(root: HTMLElement, callbacks: UiCallbacks) {
     this.root = root;
@@ -149,7 +158,22 @@ export class GameUi {
     this.overlayLayer = el("div", "overlay-layer");
     this.overlayLayer.style.display = "none";
 
-    this.root.append(stage, this.particleLayer, tabBar, panelHost, this.toastLayer, this.overlayLayer);
+    // Screen-reader announcements live region (§13.3).
+    this.ariaLiveRegion = el("div", "sr-only");
+    this.ariaLiveRegion.setAttribute("aria-live", "polite");
+    this.ariaLiveRegion.setAttribute("role", "status");
+
+    injectColorblindFilters();
+
+    this.root.append(
+      stage,
+      this.particleLayer,
+      tabBar,
+      panelHost,
+      this.toastLayer,
+      this.overlayLayer,
+      this.ariaLiveRegion,
+    );
     this.setActiveTab(this.activeTab);
   }
 
@@ -286,6 +310,9 @@ export class GameUi {
   private buildSettingsPanel(): HTMLElement {
     const panel = el("section", "panel");
 
+    // --- Gameplay (§13.1) ---
+    panel.append(this.settingsHeader("Gameplay"));
+
     const notationRow = el("div", "setting-row");
     const notationLabel = el("label", "setting-label");
     notationLabel.textContent = "Notation Mode";
@@ -300,7 +327,62 @@ export class GameUi {
       this.callbacks.onChangeNotation(this.notationSelect.value as NotationMode);
     });
     notationRow.append(notationLabel, this.notationSelect);
+    panel.append(notationRow);
 
+    panel.append(
+      this.toggleRow("Offline Progress", (s) => s.settings.offlineProgress, (s, v) => { s.settings.offlineProgress = v; }),
+      this.selectRow<"on" | "off" | "max">(
+        "Screen Shake",
+        [["on", "On"], ["off", "Off"], ["max", "MAXIMUM"]],
+        (s) => s.settings.screenShake,
+        (s, v) => { s.settings.screenShake = v; },
+      ),
+      this.toggleRow("Funny Number Popups", (s) => s.settings.funnyPopups, (s, v) => { s.settings.funnyPopups = v; }),
+    );
+
+    // Number colour override — locked unless transcended (§13.1).
+    this.colorHueRow = this.sliderRow(
+      "Number Hue Override",
+      0, 360, 1,
+      (s) => s.settings.numberColorHue ?? 0,
+      (s, v) => { s.settings.numberColorHue = v; },
+    );
+    const hueToggle = el("button", "mini-button") as HTMLButtonElement;
+    hueToggle.textContent = "auto";
+    hueToggle.addEventListener("click", () => {
+      if (!this.currentState) return;
+      this.currentState.settings.numberColorHue = this.currentState.settings.numberColorHue === null ? 0 : null;
+      this.callbacks.onSettingsChanged();
+    });
+    this.colorHueRow.row.append(hueToggle);
+    panel.append(this.colorHueRow.row);
+
+    // --- Audio (§13.2) ---
+    panel.append(this.settingsHeader("Audio"));
+    panel.append(
+      this.volumeRow("Master Volume", "master"),
+      this.volumeRow("Music Volume", "music"),
+      this.volumeRow("SFX Volume", "sfx"),
+      this.volumeRow("Funny Stinger Volume", "stinger"),
+    );
+
+    // --- Accessibility (§13.3) ---
+    panel.append(this.settingsHeader("Accessibility"));
+    panel.append(
+      this.toggleRow("Reduced Motion", (s) => s.settings.reducedMotion, (s, v) => { s.settings.reducedMotion = v; }),
+      this.toggleRow("High Contrast", (s) => s.settings.highContrast, (s, v) => { s.settings.highContrast = v; }),
+      this.toggleRow("Screen Reader Announcements", (s) => s.settings.screenReader, (s, v) => { s.settings.screenReader = v; }),
+      this.toggleRow("Auto-Click (1/s)", (s) => s.settings.autoClick, (s, v) => { s.settings.autoClick = v; }),
+      this.selectRow<"none" | "protanopia" | "deuteranopia" | "tritanopia">(
+        "Colorblind Mode",
+        [["none", "None"], ["protanopia", "Protanopia"], ["deuteranopia", "Deuteranopia"], ["tritanopia", "Tritanopia"]],
+        (s) => s.settings.colorblindMode,
+        (s, v) => { s.settings.colorblindMode = v; },
+      ),
+    );
+
+    // --- Save ---
+    panel.append(this.settingsHeader("Save"));
     const resetRow = el("div", "setting-row");
     const resetButton = el("button", "danger-button") as HTMLButtonElement;
     resetButton.textContent = "Reset Save";
@@ -310,9 +392,104 @@ export class GameUi {
       }
     });
     resetRow.append(resetButton);
+    panel.append(resetRow);
 
-    panel.append(notationRow, resetRow);
     return panel;
+  }
+
+  private settingsHeader(text: string): HTMLElement {
+    const header = el("div", "stat-section-header");
+    header.textContent = text.toUpperCase();
+    return header;
+  }
+
+  private toggleRow(
+    label: string,
+    get: (state: GameState) => boolean,
+    set: (state: GameState, value: boolean) => void,
+  ): HTMLElement {
+    const row = el("div", "setting-row");
+    const labelEl = el("span", "setting-label");
+    labelEl.textContent = label;
+    const button = el("button", "toggle-button") as HTMLButtonElement;
+    const refresh = () => {
+      if (!this.currentState) return;
+      button.textContent = get(this.currentState) ? "On" : "Off";
+      button.classList.toggle("on", get(this.currentState));
+    };
+    button.addEventListener("click", () => {
+      if (!this.currentState) return;
+      set(this.currentState, !get(this.currentState));
+      refresh();
+      this.callbacks.onSettingsChanged();
+    });
+    this.settingRefreshers.push(refresh);
+    row.append(labelEl, button);
+    return row;
+  }
+
+  private selectRow<T extends string>(
+    label: string,
+    options: Array<[T, string]>,
+    get: (state: GameState) => T,
+    set: (state: GameState, value: T) => void,
+  ): HTMLElement {
+    const row = el("div", "setting-row");
+    const labelEl = el("span", "setting-label");
+    labelEl.textContent = label;
+    const select = el("select", "setting-select") as HTMLSelectElement;
+    for (const [value, text] of options) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = text;
+      select.append(option);
+    }
+    select.addEventListener("change", () => {
+      if (!this.currentState) return;
+      set(this.currentState, select.value as T);
+      this.callbacks.onSettingsChanged();
+    });
+    this.settingRefreshers.push(() => {
+      if (this.currentState) select.value = get(this.currentState);
+    });
+    row.append(labelEl, select);
+    return row;
+  }
+
+  private sliderRow(
+    label: string,
+    min: number,
+    max: number,
+    step: number,
+    get: (state: GameState) => number,
+    set: (state: GameState, value: number) => void,
+  ): { row: HTMLElement; input: HTMLInputElement } {
+    const row = el("div", "setting-row");
+    const labelEl = el("span", "setting-label");
+    labelEl.textContent = label;
+    const input = el("input", "setting-slider") as HTMLInputElement;
+    input.type = "range";
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    input.addEventListener("input", () => {
+      if (!this.currentState) return;
+      set(this.currentState, Number(input.value));
+      this.callbacks.onSettingsChanged();
+    });
+    this.settingRefreshers.push(() => {
+      if (this.currentState) input.value = String(get(this.currentState));
+    });
+    row.append(labelEl, input);
+    return { row, input };
+  }
+
+  private volumeRow(label: string, key: keyof GameState["settings"]["volumes"]): HTMLElement {
+    return this.sliderRow(
+      label, 0, 1, 0.01,
+      (s) => s.settings.volumes[key],
+      (s, v) => { s.settings.volumes[key] = v; },
+    ).row;
   }
 
   private setActiveTab(tabId: TabId): void {
@@ -329,11 +506,16 @@ export class GameUi {
   // --- Per-frame update -----------------------------------------------------
 
   update(state: GameState): void {
+    this.currentState = state;
+
     // Advance the "Long Stare" clock while the Stats tab sits open and idle.
     const nowMs = performance.now();
     const deltaMs = nowMs - this.lastClockMs;
     this.lastClockMs = nowMs;
     if (this.activeTab === "stats") this.statsTabIdleMs += deltaMs;
+
+    this.applyAccessibilityClasses(state);
+    if (this.activeTab === "settings") this.refreshSettingsControls(state);
 
     const flooredNumber = Math.floor(state.currentNumber);
     this.numberDisplay.textContent = formatNumber(flooredNumber, state.notationMode);
@@ -350,6 +532,31 @@ export class GameUi {
     if (this.notationSelect.value !== state.notationMode) {
       this.notationSelect.value = state.notationMode;
     }
+  }
+
+  private applyAccessibilityClasses(state: GameState): void {
+    const settings = state.settings;
+    this.root.classList.toggle("reduced-motion", settings.reducedMotion);
+    this.root.classList.toggle("high-contrast", settings.highContrast);
+    for (const mode of ["protanopia", "deuteranopia", "tritanopia"] as const) {
+      this.root.classList.toggle(`cb-${mode}`, settings.colorblindMode === mode);
+    }
+  }
+
+  private refreshSettingsControls(state: GameState): void {
+    for (const refresh of this.settingRefreshers) refresh();
+    this.notationSelect.value = state.notationMode;
+    // Hue override is locked until the player has transcended at least once (§13.1).
+    const locked = state.transcendenceLevel < 1;
+    const auto = state.settings.numberColorHue === null;
+    this.colorHueRow.input.disabled = locked || auto;
+    this.colorHueRow.row.classList.toggle("locked", locked);
+  }
+
+  /** Announce milestones/events to the ARIA live region when enabled (§13.3). */
+  announce(message: string): void {
+    if (!this.currentState?.settings.screenReader) return;
+    this.ariaLiveRegion.textContent = message;
   }
 
   private updateAchievements(state: GameState): void {
@@ -436,8 +643,12 @@ export class GameUi {
       this.numberDisplay.style.fontSize = "";
     }
 
-    // Transcendence shifts the number's hue 30° per level (§6.3).
-    const hueDegrees = transcendenceHueDegrees(state);
+    // Number hue: a manual override (unlocked after transcending) wins; otherwise
+    // transcendence shifts the hue 30° per level (§6.3 / §13.1).
+    const overrideHue = state.settings.numberColorHue;
+    const hueDegrees = overrideHue !== null && state.transcendenceLevel >= 1
+      ? overrideHue
+      : transcendenceHueDegrees(state);
     this.numberDisplay.style.filter = hueDegrees > 0 ? `hue-rotate(${hueDegrees}deg)` : "";
   }
 
@@ -561,8 +772,13 @@ export class GameUi {
     popup.addEventListener("animationend", () => popup.remove());
   }
 
-  /** Screen shake scaled to click power (§4.1). */
-  applyClickShake(clickPowerValue: number): void {
+  /** Screen shake scaled to click power (§4.1), honouring the Screen Shake setting (§13.1). */
+  applyClickShake(clickPowerValue: number, mode: ScreenShakeMode): void {
+    if (mode === "off") return;
+    if (mode === "max") {
+      this.triggerShake("shake-violent");
+      return;
+    }
     if (clickPowerValue >= SHAKE_VIOLENT_THRESHOLD) {
       this.triggerShake("shake-violent");
     } else if (clickPowerValue >= SHAKE_SUBTLE_THRESHOLD) {
@@ -611,4 +827,33 @@ function el(tag: string, className: string): HTMLElement {
   const element = document.createElement(tag);
   element.className = className;
   return element;
+}
+
+// Colour-vision-deficiency simulation matrices (§13.3). Injected once as SVG
+// filters; CSS classes (.cb-*) reference them via filter: url(#...).
+const COLORBLIND_MATRICES: Record<string, string> = {
+  protanopia: "0.567 0.433 0 0 0  0.558 0.442 0 0 0  0 0.242 0.758 0 0  0 0 0 1 0",
+  deuteranopia: "0.625 0.375 0 0 0  0.7 0.3 0 0 0  0 0.3 0.7 0 0  0 0 0 1 0",
+  tritanopia: "0.95 0.05 0 0 0  0 0.433 0.567 0 0  0 0.475 0.525 0 0  0 0 0 1 0",
+};
+
+function injectColorblindFilters(): void {
+  if (document.getElementById("ngu-cb-filters")) return;
+  const svgNs = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNs, "svg");
+  svg.setAttribute("id", "ngu-cb-filters");
+  svg.setAttribute("aria-hidden", "true");
+  svg.style.position = "absolute";
+  svg.style.width = "0";
+  svg.style.height = "0";
+  for (const [mode, matrix] of Object.entries(COLORBLIND_MATRICES)) {
+    const filter = document.createElementNS(svgNs, "filter");
+    filter.setAttribute("id", `cb-${mode}`);
+    const colorMatrix = document.createElementNS(svgNs, "feColorMatrix");
+    colorMatrix.setAttribute("type", "matrix");
+    colorMatrix.setAttribute("values", matrix);
+    filter.append(colorMatrix);
+    svg.append(filter);
+  }
+  document.body.append(svg);
 }

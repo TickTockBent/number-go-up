@@ -9,9 +9,12 @@ import {
   evaluateAchievements,
   unlockAchievement,
 } from "./systems/achievements";
+import { AudioEngine } from "./systems/audio";
 import { clickPower, passivePerSecond, speedPenaltyFraction } from "./systems/economy";
 import { FunnyNumberDetector } from "./systems/funnyNumbers";
 import { doAscend, doPrestige, doTranscend } from "./systems/prestige";
+import { ownedCount } from "./state";
+import { UPGRADES_BY_ID } from "./data/upgrades";
 import { formatCompact, type NotationMode } from "./systems/notation";
 import {
   applyOfflineProgress,
@@ -36,8 +39,35 @@ let runStartMs = performance.now(); // Reset on every prestige-layer reset.
 let focusedIdleMs = 0; // Time since last click, accrued only while focused.
 let returnedFromMaxOffline = false;
 
+// --- Audio (resumed on first gesture per browser autoplay policy) ---
+const audio = new AudioEngine();
+let autoClickTimer: number | null = null;
+
 function announceAchievement(achievement: AchievementDefinition | null): void {
-  if (achievement) ui.showToast(`🏆 ${achievement.name} — ${achievement.description}`);
+  if (!achievement) return;
+  ui.showToast(`🏆 ${achievement.name} — ${achievement.description}`);
+  ui.announce(`Achievement unlocked: ${achievement.name}`);
+}
+
+/** Reapplies side-effectful settings (audio, auto-click) and persists. */
+function applySettings(): void {
+  audio.setVolumes(state.settings.volumes);
+  syncAutoClick();
+  saveState(state, Date.now());
+}
+
+function syncAutoClick(): void {
+  const shouldRun = state.settings.autoClick;
+  if (shouldRun && autoClickTimer === null) {
+    autoClickTimer = window.setInterval(() => {
+      performClick(state); // Counts toward click achievements (§13.3).
+      audio.playClick();
+      focusedIdleMs = 0;
+    }, 1000);
+  } else if (!shouldRun && autoClickTimer !== null) {
+    window.clearInterval(autoClickTimer);
+    autoClickTimer = null;
+  }
 }
 
 const ui = new GameUi(appRoot, {
@@ -46,11 +76,15 @@ const ui = new GameUi(appRoot, {
     performClick(state);
     focusedIdleMs = 0; // A click breaks the idle streak.
     ui.spawnClickParticle(clientX, clientY, power, state.notationMode);
-    ui.applyClickShake(power);
+    ui.applyClickShake(power, state.settings.screenShake);
+    audio.playClick();
   },
   onBuyUpgrade: (upgradeId) => {
     const result = buyUpgrade(state, upgradeId);
-    if (result.success && result.message) ui.showToast(result.message);
+    if (!result.success) return;
+    if (result.message) ui.showToast(result.message);
+    const special = UPGRADES_BY_ID[upgradeId]?.special;
+    audio.playBuy(special === "slow" || special === "mystery" || special === "red" ? special : "normal");
   },
   onChangeNotation: (mode: NotationMode) => {
     state.notationMode = mode;
@@ -69,34 +103,55 @@ const ui = new GameUi(appRoot, {
     if (!quote) return;
     runStartMs = performance.now();
     if (runElapsedMs < 60_000) announceAchievement(unlockAchievement(state, "prestige_within_60_seconds"));
+    audio.playPrestige();
+    audio.prestigeMusicCut();
     ui.showOverlay(quote);
+    ui.announce("Prestige. The number resets. The percentage remains.");
   },
   onAscend: () => {
     const quote = doAscend(state);
     if (!quote) return;
     runStartMs = performance.now();
+    audio.playAscension();
+    audio.prestigeMusicCut();
     ui.showOverlay(quote);
+    ui.announce("Ascension. Everything below resets.");
   },
   onTranscend: () => {
     const quote = doTranscend(state);
     if (!quote) return;
     runStartMs = performance.now();
+    audio.playTranscendence();
+    audio.prestigeMusicCut();
     ui.showOverlay(quote);
+    ui.announce("Transcendence. Everything resets. The hue remembers.");
   },
   onOpenCards: () => {
     announceAchievement(unlockAchievement(state, "card_collector"));
   },
+  onSettingsChanged: () => {
+    applySettings();
+  },
 });
 
-// Offline progress on load (§9.1). Only show the toast if meaningful time passed.
-const offline = applyOfflineProgress(state, passivePerSecond(state), Date.now());
-if (offline.numberGained >= 1) {
-  ui.showToast(
-    `While you were gone, the number went up by ${formatCompact(offline.numberGained)}. It didn't miss you.`,
-  );
+// Resume audio on the first user gesture (autoplay policy); apply saved settings.
+window.addEventListener("pointerdown", () => audio.resume(), { once: true });
+window.addEventListener("keydown", () => audio.resume(), { once: true });
+audio.setVolumes(state.settings.volumes);
+syncAutoClick();
+
+// Offline progress on load (§9.1), unless disabled in settings (§13.1).
+if (state.settings.offlineProgress) {
+  const offline = applyOfflineProgress(state, passivePerSecond(state), Date.now());
+  if (offline.numberGained >= 1) {
+    ui.showToast(
+      `While you were gone, the number went up by ${formatCompact(offline.numberGained)}. It didn't miss you.`,
+    );
+    audio.playOfflinePing();
+  }
+  // Returning from the full 8h cap arms the "Alt-Tabbed" achievement (§10.5).
+  if (offline.elapsedMs >= OFFLINE_CAP_MS) returnedFromMaxOffline = true;
 }
-// Returning from the full 8h cap arms the "Alt-Tabbed" achievement (§10.5).
-if (offline.elapsedMs >= OFFLINE_CAP_MS) returnedFromMaxOffline = true;
 
 // --- Fixed-step loop ------------------------------------------------------
 const funnyNumberDetector = new FunnyNumberDetector();
@@ -115,13 +170,19 @@ function frame(nowMs: number): void {
     accumulatedMs -= LOGIC_TICK_MS;
   }
 
-  const funnyNumber = funnyNumberDetector.poll(state.currentNumber, nowMs);
-  if (funnyNumber) {
-    state.funnyNumberSightings[funnyNumber.pattern] =
-      (state.funnyNumberSightings[funnyNumber.pattern] ?? 0) + 1;
-    ui.spawnFunnyPopup(funnyNumber, state.notationMode);
-    // Audio stinger (§7.4) is wired in the audio milestone.
+  if (state.settings.funnyPopups) {
+    const funnyNumber = funnyNumberDetector.poll(state.currentNumber, nowMs);
+    if (funnyNumber) {
+      state.funnyNumberSightings[funnyNumber.pattern] =
+        (state.funnyNumberSightings[funnyNumber.pattern] ?? 0) + 1;
+      ui.spawnFunnyPopup(funnyNumber, state.notationMode);
+      audio.playStinger(funnyNumber.sound);
+      ui.announce(`Funny number: ${funnyNumber.label}`);
+    }
   }
+
+  // Adaptive music follows the production rate and corruption state (§12.1).
+  audio.updateMusic(passivePerSecond(state), speedPenaltyFraction(state), ownedCount(state, "red"));
 
   // Idle achievements only accrue while the window is actually focused (§10.5).
   if (document.visibilityState === "visible" && document.hasFocus()) {
