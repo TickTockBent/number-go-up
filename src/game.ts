@@ -2,9 +2,11 @@
 // the render/loop layer so these stay easy to unit-test later.
 
 import {
+  mysteryButtonMessage,
   redButtonMessage,
   slowButtonMessage,
   UPGRADES_BY_ID,
+  VOID_BUTTON_MESSAGE,
 } from "./data/upgrades";
 import {
   clickPower,
@@ -35,14 +37,23 @@ export function buyUpgrade(state: GameState, upgradeId: string): PurchaseResult 
   if (state.currentNumber < cost) return { success: false };
 
   state.currentNumber -= cost;
-  state.upgradeCounts[upgradeId] = ownedCount(state, upgradeId) + 1;
+  const newCount = ownedCount(state, upgradeId) + 1;
+  state.upgradeCounts[upgradeId] = newCount;
 
   // Trap buttons get their escalating flavour text (§5.7).
-  if (definition.special === "red") {
-    return { success: true, message: redButtonMessage(state.upgradeCounts[upgradeId]) };
+  switch (definition.special) {
+    case "red":
+      return { success: true, message: redButtonMessage(newCount) };
+    case "slow":
+      return { success: true, message: slowButtonMessage(speedPenaltyFraction(state)) };
+    case "mystery":
+      return { success: true, message: mysteryButtonMessage(newCount) };
+    case "void":
+      // Sacrifice half the current number; the +25% production lives in the
+      // global multiplier (§5.5). Total-ever is untouched — the number was earned.
+      state.currentNumber *= 0.5;
+      return { success: true, message: VOID_BUTTON_MESSAGE };
+    default:
+      return { success: true };
   }
-  if (definition.special === "slow") {
-    return { success: true, message: slowButtonMessage(speedPenaltyFraction(state)) };
-  }
-  return { success: true };
 }

@@ -1,9 +1,8 @@
-// Upgrade definitions, transcribed from the GDD (§5).
-//
-// Milestone 1 wires Tiers 1-2 (including the RED and SLOWER trap buttons).
-// Later tiers and the remaining trap behaviours (mystery / void / recursive /
-// green / anti-slow) land in milestone 2, so they are intentionally NOT defined
-// here yet — every upgrade in this file is fully functional.
+// Upgrade definitions, transcribed from the GDD (§5). All tiers (1-6) and every
+// trap behaviour are wired. Generic effects (clickAdd / clickMult / autoPerSecond)
+// live in `effect`; bespoke math (slow, green, void, recursive, anti-slow, the
+// click-of-god, and the mystery button's hidden bonus) is keyed by upgrade id in
+// economy.ts. The `special` tag drives UI styling + purchase flavour messages.
 
 export type UpgradeEffect = {
   /** Flat addition to click power, per unit owned. */
@@ -12,12 +11,18 @@ export type UpgradeEffect = {
   clickMult?: number;
   /** Flat addition to passive per-second production, per unit owned. */
   autoPerSecond?: number;
-  /** Global production multiplier applied per unit owned (affects click + passive). */
-  globalProductionMult?: number;
 };
 
-/** Trap upgrades have bespoke behaviour handled outside the generic effect math. */
-export type UpgradeSpecial = "red" | "slow";
+/** Trap / bespoke upgrades whose math is handled by id in economy.ts. */
+export type UpgradeSpecial =
+  | "red"
+  | "slow"
+  | "green"
+  | "anti_slow"
+  | "mystery"
+  | "void"
+  | "recursive"
+  | "click_god";
 
 export interface UpgradeDefinition {
   id: string;
@@ -102,6 +107,122 @@ export const UPGRADE_DEFINITIONS: UpgradeDefinition[] = [
     effectLabel: "×0.9 all production",
     special: "slow",
   },
+
+  // --- Tier 3 — Commitment Issues (§5.3), unlocked at 50K total ---
+  {
+    id: "auto_5",
+    name: "Number Philosopher",
+    baseCost: 130_000,
+    unlockAtTotalEver: 50_000,
+    description: "Ponders the nature of up",
+    effectLabel: "+1,400 / s",
+    effect: { autoPerSecond: 1_400 },
+  },
+  {
+    id: "click_2",
+    name: "Click Multiplier",
+    baseCost: 75_000,
+    unlockAtTotalEver: 50_000,
+    description: "Your clicks now have opinions",
+    effectLabel: "×1.5 click power",
+    effect: { clickMult: 1.5 },
+  },
+  {
+    id: "green",
+    name: "GREEN BUTTON",
+    baseCost: 100_000,
+    unlockAtTotalEver: 50_000,
+    description: "Finally, a button that helps. Barely.",
+    effectLabel: "+0.1% all production",
+    special: "green",
+  },
+
+  // --- Tier 4 — Past the Point of No Return (§5.4), unlocked at 1M total ---
+  {
+    id: "auto_6",
+    name: "Number Deity",
+    baseCost: 1_400_000,
+    unlockAtTotalEver: 1_000_000,
+    description: "Ascended past caring. Numbers still go up.",
+    effectLabel: "+7,800 / s",
+    effect: { autoPerSecond: 7_800 },
+  },
+  {
+    id: "mystery",
+    name: "???",
+    baseCost: 9_999_999,
+    unlockAtTotalEver: 1_000_000,
+    description: "???",
+    effectLabel: "Nothing. Different nothing.",
+    special: "mystery",
+  },
+  {
+    id: "anti_slow",
+    name: "FASTER BUTTON",
+    baseCost: 2_000_000,
+    unlockAtTotalEver: 1_000_000,
+    description: "Partially undoes the slower button. Costs 400x more.",
+    effectLabel: "×1.05 all production",
+    special: "anti_slow",
+  },
+
+  // --- Tier 5 — Why Are You Still Here (§5.5), unlocked at 100M total ---
+  {
+    id: "auto_7",
+    name: "The Concept of Up",
+    baseCost: 20_000_000,
+    unlockAtTotalEver: 100_000_000,
+    description: "It's not a person. It's an idea. The number respects it.",
+    effectLabel: "+44,000 / s",
+    effect: { autoPerSecond: 44_000 },
+  },
+  {
+    id: "auto_8",
+    name: "Number's Number",
+    baseCost: 200_000_000,
+    unlockAtTotalEver: 100_000_000,
+    description: "Your number hired a number. That number goes up too.",
+    effectLabel: "+250,000 / s",
+    effect: { autoPerSecond: 250_000 },
+  },
+  {
+    id: "void",
+    name: "THE VOID BUTTON",
+    baseCost: 500_000_000,
+    unlockAtTotalEver: 100_000_000,
+    description: "Sacrifices half your number. The other half is grateful.",
+    effectLabel: "-50% current number, +25% production",
+    special: "void",
+  },
+
+  // --- Tier 6 — Endgame Content (There Is No Endgame) (§5.6), unlocked at 10B ---
+  {
+    id: "auto_9",
+    name: "Number Singularity",
+    baseCost: 5_000_000_000,
+    unlockAtTotalEver: 10_000_000_000,
+    description: "All numbers are one number now. It goes up.",
+    effectLabel: "+1,400,000 / s",
+    effect: { autoPerSecond: 1_400_000 },
+  },
+  {
+    id: "recursive",
+    name: "The Game Itself",
+    baseCost: 50_000_000_000,
+    unlockAtTotalEver: 10_000_000_000,
+    description: "The game is playing itself. You can leave. You won't.",
+    effectLabel: "+0.01% of current number / s",
+    special: "recursive",
+  },
+  {
+    id: "click_3",
+    name: "Click of God",
+    baseCost: 100_000_000_000,
+    unlockAtTotalEver: 10_000_000_000,
+    description: "Each click adds your full per-second rate. Why click when it's automatic? Because you can.",
+    effectLabel: "Click = 1s of production",
+    special: "click_god",
+  },
 ];
 
 export const UPGRADES_BY_ID: Record<string, UpgradeDefinition> = Object.fromEntries(
@@ -147,3 +268,26 @@ export function slowButtonMessage(speedPenaltyFraction: number): string {
   if (speedPenaltyFraction >= 0.2) return `${penaltyPercent}% slower. The number is starting to resent you.`;
   return `Everything is now ${penaltyPercent}% slower. You paid for this.`;
 }
+
+// MYSTERY BUTTON (§5.7): 7 rotating flavour lines. Every 7th purchase silently
+// grants a hidden +0.777% production bonus that is NEVER surfaced anywhere — it
+// is derived from floor(count / 7) in economy.ts, so it isn't even stored as its
+// own save field. If a player discovers it, we do not confirm or deny.
+export const MYSTERY_BUTTON_MESSAGES: string[] = [
+  "???",
+  "You bought ???. ??? thanks you. Or doesn't. ???",
+  "Nothing happened. Probably.",
+  "The ??? regards you with whatever ??? has instead of eyes.",
+  "You are now 0% closer to understanding. Or are you.",
+  "???. The button does not elaborate.",
+  "Something almost happened just now. It didn't. Or did it.",
+];
+
+/** Flavour line for the Nth mystery button purchased (1-indexed), cycling. */
+export function mysteryButtonMessage(mysteryButtonsOwned: number): string {
+  const index = (mysteryButtonsOwned - 1) % MYSTERY_BUTTON_MESSAGES.length;
+  return MYSTERY_BUTTON_MESSAGES[index];
+}
+
+export const VOID_BUTTON_MESSAGE =
+  "Half your number is gone. The other half is grateful. Production is up 25%.";

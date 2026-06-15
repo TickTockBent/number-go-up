@@ -185,6 +185,12 @@ body {
 
 .trap-red .upgrade-name { color: var(--number-red); }
 .trap-slow .upgrade-name { color: #ffb454; }
+.trap-green .upgrade-name { color: #66dd66; }
+.trap-anti_slow .upgrade-name { color: #66ddff; }
+.trap-void .upgrade-name { color: #b07cff; }
+.trap-recursive .upgrade-name { color: #ff9ed8; }
+.trap-click_god .upgrade-name { color: #ffe066; }
+.trap-mystery .upgrade-name { color: #c9d4e0; letter-spacing: 2px; }
 
 .buy-button {
   flex-shrink: 0;
